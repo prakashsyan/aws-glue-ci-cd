@@ -1,0 +1,62 @@
+name: AWS Glue ETL CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  # Configuration Variables from GitHub Secrets
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  GLUE_JOB_NAME: ${{ secrets.AWS_GLUE_JOB_NAME }}
+  S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+  S3_KEY: scripts/${{ secrets.AWS_GLUE_JOB_NAME }}/glue_script.py
+  SCRIPT_PATH: src/glue_script.py
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # This is required for requesting the OIDC token
+      contents: read # This is required for checking out the code
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }} # The IAM Role ARN from AWS IAM
+          aws-region: ${{ env.AWS_REGION }}
+          # The role session name is used for audit trails in AWS CloudTrail
+          role-session-name: GlueDeploySession-${{ github.sha }}
+
+      - name: Check AWS CLI Installation
+        run: aws --version
+
+      - name: Upload Glue Script to S3
+        id: upload-script
+        run: |
+          echo "Uploading ${{ env.SCRIPT_PATH }} to s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}"
+          aws s3 cp ${{ env.SCRIPT_PATH }} s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}
+        shell: bash
+
+      - name: Verify S3 Upload
+        run: |
+          aws s3 ls s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}
+        shell: bash
+
+      - name: Update AWS Glue Job Script Location
+        id: update-glue-job
+        # This command updates the ScriptLocation parameter of the existing Glue Job
+        run: |
+          aws glue update-job --job-name ${{ env.GLUE_JOB_NAME }} \
+              --job-update '{"Command": {"Name": "glueetl", "ScriptLocation": "s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}", "PythonVersion": "3"}}' \
+              --region ${{ env.AWS_REGION }}
+        shell: bash
+
+      - name: Deployment Success
+        run: echo "Successfully deployed and updated Glue Job: ${{ env.GLUE_JOB_NAME }}"
+        
