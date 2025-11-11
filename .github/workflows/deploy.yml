@@ -58,5 +58,5 @@ jobs:
         shell: bash
 
       - name: Deployment Success
-        run: echo "Successfully deployed and updated Glue Job: ${{ env.GLUE_JOB_NAME }}"
+        run: echo "Successfully deployed and updated Glue Job: ${{ env.AWS_GLUE_JOB_NAME }}"
         
